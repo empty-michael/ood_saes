@@ -65,7 +65,7 @@ class OODLensEvaluator():
             for k in [1, 3, 5, 10, 20]:
                 x_ood, y_ood_hat = self.get_ood_inputs(x, sae_acts, eval_type, k)
                 loss_ood, y_ood = self.patch_model(batch, inputs=x_ood)
-                loss_ood_hat, _ = self.path_model(batch, inputs=x_ood, outputs=y_ood_hat)
+                loss_ood_hat, _ = self.patch_model(batch, inputs=x_ood, outputs=y_ood_hat)
 
                 self.metrics.append({'k': 0,
                        'mse': ((y_ood - y_ood_hat)**2).sum(dim=-1).mean(),
@@ -95,7 +95,7 @@ class OODLensEvaluator():
             rand_ids = self.get_rand_ids(size, feature_mask=self.feature_mask)
             sample_acts = self.sample_activations(sae_acts, size)
             x_ood = x + einsum(self.W_dec_in[rand_ids], sample_acts.to(self.cfg.device), "b pos feat d_model, b pos feat -> b pos d_model")
-        y_ood_hat, _ = self.sae_out_fn(x_ood)
+        y_ood_hat, _ = self.cfg.sae_out_fn(x_ood)
         return x_ood, y_ood_hat
 
     @torch.no_grad()
@@ -125,14 +125,15 @@ class OODLensEvaluator():
 
     def sample_activations(self, sae_acts, size):
         acts = sae_acts[sae_acts > 0]
-        return torch.randint(len(acts), size=size)
+        ids = torch.randint(len(acts), size=size)
+        return acts[ids]
 
 
 
     @torch.no_grad()
     def set_input_decoder(self):
         if self.cfg.is_transcoder:
-            self.W_dec_in = torch.linalg.pinv(self.sae.W_dec.detach())
+            self.W_dec_in = torch.linalg.pinv(self.sae.W_dec.detach()).T
         else:
             self.W_dec_in = self.sae.W_dec.detach()
 
