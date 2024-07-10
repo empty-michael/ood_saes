@@ -62,7 +62,7 @@ class OODLensEvaluator():
                        'eval_type': eval_type}
                        )
 
-            for k in range(1, 3, 5, 10, 20):
+            for k in [1, 3, 5, 10, 20]:
                 x_ood, y_ood_hat = self.get_ood_inputs(x, sae_acts, eval_type, k)
                 loss_ood, y_ood = self.patch_model(batch, inputs=x_ood)
                 loss_ood_hat, _ = self.path_model(batch, inputs=x_ood, outputs=y_ood_hat)
@@ -90,11 +90,11 @@ class OODLensEvaluator():
     @torch.no_grad()
     def get_ood_inputs(self, x, sae_acts, eval_type, k):
         if eval_type == 'add_random_acts':
-            size = sae_acts.shape
+            size = list(sae_acts.shape)
             size[-1] = k
             rand_ids = self.get_rand_ids(size, feature_mask=self.feature_mask)
             sample_acts = self.sample_activations(sae_acts, size)
-            x_ood = x + einsum(self.W_dec_in[rand_ids], sample_acts, "b pos feat d_model, b pos feat -> d_model")
+            x_ood = x + einsum(self.W_dec_in[rand_ids], sample_acts.to(self.cfg.device), "b pos feat d_model, b pos feat -> b pos d_model")
         y_ood_hat, _ = self.sae_out_fn(x_ood)
         return x_ood, y_ood_hat
 
