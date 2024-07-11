@@ -54,24 +54,30 @@ class OODLensEvaluator():
             #x: sae inputs, y: sae outputs, loss: cross-entropy loss
             x, y, y_hat, sae_acts, loss = self.run_model(batch) 
             loss_hat, _ = self.patch_model(batch, outputs=y_hat)
+            mse = ((y - y_hat)**2).sum(dim=-1).mean()
+            y_sq = (y**2).sum(dim=-1).mean()
 
             self.metrics.append({'k': 0,
-                       'mse': ((y - y_hat)**2).sum(dim=-1).mean(),
-                       'loss': loss,
-                       'loss_hat': loss_hat,
-                       'eval_type': eval_type}
+                       'mse': mse.item(),
+                       'loss': loss.item(),
+                       'loss_hat': loss_hat.item(),
+                       'L0': (sae_acts>0).float().sum(dim=-1).mean().item(),
+                       'y_sq': y_sq.item()}
                        )
 
-            for k in [1, 3, 5, 10, 20]:
-                x_ood, y_ood_hat = self.get_ood_inputs(x, sae_acts, eval_type, k)
+            for k in [1, 3, 5, 10, 20, 50, 100, 200]:
+                x_ood, y_ood_hat, sae_acts_ood = self.get_ood_inputs(x, sae_acts, eval_type, k)
                 loss_ood, y_ood = self.patch_model(batch, inputs=x_ood)
                 loss_ood_hat, _ = self.patch_model(batch, inputs=x_ood, outputs=y_ood_hat)
 
-                self.metrics.append({'k': 0,
-                       'mse': ((y_ood - y_ood_hat)**2).sum(dim=-1).mean(),
-                       'loss': loss_ood,
-                       'loss_hat': loss_ood_hat,
-                       'eval_type': eval_type}
+                mse_ood = ((y_ood - y_ood_hat)**2).sum(dim=-1).mean()
+                y_sq_ood = (y_ood**2).sum(dim=-1).mean()
+                self.metrics.append({'k': k,
+                       'mse': mse_ood.item(),
+                       'loss': loss_ood.item(),
+                       'loss_hat': loss_ood_hat.item(),
+                       'L0': (sae_acts_ood>0).float().sum(dim=-1).mean().item(),
+                       'y_sq': y_sq_ood.item()}
                        )
         return DataFrame(self.metrics)
 
@@ -95,8 +101,8 @@ class OODLensEvaluator():
             rand_ids = self.get_rand_ids(size, feature_mask=self.feature_mask)
             sample_acts = self.sample_activations(sae_acts, size)
             x_ood = x + einsum(self.W_dec_in[rand_ids], sample_acts.to(self.cfg.device), "b pos feat d_model, b pos feat -> b pos d_model")
-        y_ood_hat, _ = self.cfg.sae_out_fn(x_ood)
-        return x_ood, y_ood_hat
+        y_ood_hat, sae_acts_ood = self.cfg.sae_out_fn(x_ood)
+        return x_ood, y_ood_hat, sae_acts_ood
 
     @torch.no_grad()
     def patch_model(self, batch, inputs = None, outputs=None):
@@ -112,8 +118,8 @@ class OODLensEvaluator():
         with self.model.hooks(fwd_hooks=hooks):
             loss, cache = self.model.run_with_cache(batch['input_ids'], return_type='loss',
                                 names_filter=[self.cfg.hook_out_name])
-        
-        return loss, cache[self.cfg.hook_out_name]
+            y = cache[self.cfg.hook_out_name]
+        return loss, y
 
     def get_rand_ids(self, size, feature_mask = None):
         feat_ids = torch.arange(self.sae.W_dec.shape[0])
@@ -133,7 +139,7 @@ class OODLensEvaluator():
     @torch.no_grad()
     def set_input_decoder(self):
         if self.cfg.is_transcoder:
-            self.W_dec_in = torch.linalg.pinv(self.sae.W_dec.detach()).T
+            self.W_dec_in = torch.linalg.pinv(self.sae.W_enc.detach()).T
         else:
             self.W_dec_in = self.sae.W_dec.detach()
 
