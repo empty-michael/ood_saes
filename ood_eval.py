@@ -139,7 +139,8 @@ class OODLensEvaluator():
     @torch.no_grad()
     def set_input_decoder(self):
         if self.cfg.is_transcoder:
-            self.W_dec_in = torch.linalg.pinv(self.sae.W_enc.detach()).T
+            # self.W_dec_in = torch.linalg.pinv(self.sae.W_enc.detach())
+            self.W_dec_in = self.sae.W_enc.detach().T
         else:
             self.W_dec_in = self.sae.W_dec.detach()
 
